@@ -49,7 +49,7 @@ class LabelSmoothedCrossEntropyCriterionWithMMConsis(FairseqCriterion):
 
     def forward(self, model, sample, reduce=True):
         net_output = model(**sample['net_input'])
-        loss, nll_loss, consis_loss_val, es_mean, es_std, contrast_loss_val, entity_push_val = self.compute_loss(model, net_output, sample, reduce=reduce)
+        loss, nll_loss, consis_loss_val, es_mean, es_std, contrast_loss_val, entity_push_val, sparsity_val = self.compute_loss(model, net_output, sample, reduce=reduce)
         sample_size = sample['target'].size(0) if self.args.sentence_avg else sample['ntokens']
         logging_output = {
             'loss': utils.item(loss.data) if reduce else loss.data,
@@ -94,9 +94,10 @@ class LabelSmoothedCrossEntropyCriterionWithMMConsis(FairseqCriterion):
             w_fwd = 1.0 - entity_w
             w_rev = entity_w
             consis_loss = (w_fwd * kl_forward + w_rev * kl_reverse).mean()
-            # V10: Repel entity_score from 0.5 saddle point (entropy traps at 0.5)
+            # V11: Repel saddle + sparsity constraint (target ~15% entities)
             entity_push = -((entity_score - 0.5) ** 2).mean()
-            consis_loss = consis_loss + 0.1 * entity_push
+            sparsity_loss = (entity_score.mean() - 0.15) ** 2
+            consis_loss = consis_loss + 0.1 * entity_push + 0.5 * sparsity_loss
 
             # === Phase3: Entity-weighted Cross-modal Contrastive Distillation ===
             if txt_out is not None:
@@ -133,7 +134,8 @@ class LabelSmoothedCrossEntropyCriterionWithMMConsis(FairseqCriterion):
         es_mean = entity_score.float().mean().item() if entity_score is not None else 0.0
         es_std = entity_score.float().std().item() if entity_score is not None else 0.0
         entity_push_val = entity_push.detach()
-        return loss + consis_loss, nll_loss, consis_loss_val, es_mean, es_std, contrast_loss_val, entity_push_val
+        sparsity_val = sparsity_loss.detach()
+        return loss + consis_loss, nll_loss, consis_loss_val, es_mean, es_std, contrast_loss_val, entity_push_val, sparsity_val
 
     @staticmethod
     def reduce_metrics(logging_outputs) -> None:
