@@ -192,8 +192,8 @@ class TranslationTask(FairseqTask):
                                  'e.g., \'{"beam": 4, "lenpen": 0.6}\'')
         parser.add_argument('--eval-bleu-print-samples', action='store_true',
                             help='print sample generations during validation')
-        parser.add_argument('--kl-loss1-coeff', type=float, default=1.0)
-        parser.add_argument('--kl-loss2-coeff', type=float, default=1.0)
+        parser.add_argument('--kl-loss1-coeff', type=float, default=0.1)
+        parser.add_argument('--kl-loss2-coeff', type=float, default=0.1)
         parser.add_argument('--data-augment', action='store_true', default=False,
                             help='DEEP-style entity span noising')
         # fmt: on

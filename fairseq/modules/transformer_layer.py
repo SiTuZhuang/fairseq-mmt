@@ -195,7 +195,7 @@ class TransformerEncoderLayer(nn.Module):
         # Gating with image features
         if syn_img_features is not None and lay_idx >= 3:
             gated, consistency, entity_score = self.gating(x, syn_img_features)
-            self._gating_stats = (consistency.detach(), entity_score.detach())
+            self._gating_stats = (consistency.detach(), entity_score)  # No detach: allow gradient from adversarial reg
             x = x + gated
 
         residual = x
@@ -608,6 +608,8 @@ class GatingMechanism(nn.Module):
         self.gate_fc = nn.Linear(embed_dim * 2, 1)
         self.advocate = nn.Linear(embed_dim, 1)  # adversarial: wants to USE visual
         self.skeptic  = nn.Linear(embed_dim, 1)  # adversarial: wants to SKIP visual
+        nn.init.constant_(self.advocate.bias, 1.0)
+        nn.init.constant_(self.skeptic.bias, -1.0)  # break saddle-point
         self.scale = embed_dim ** -0.5
         self.layer_norm = LayerNorm(embed_dim)
 
@@ -619,21 +621,35 @@ class GatingMechanism(nn.Module):
             grid_img_features.permute(1, 2, 0)
         ) * self.scale
         attn_weights = F.softmax(attn, dim=-1)
-        # Per-token selective visual feature
+        # Per-token selective visual feature (fine-grained)
         selective_visual = torch.bmm(
             attn_weights,
             grid_img_features.permute(1, 0, 2)
-        ).permute(1, 0, 2)
+        ).permute(1, 0, 2)  # (T, B, C)
+        # Global visual feature (coarse, for non-entity tokens)
+        global_visual = grid_img_features.mean(dim=0, keepdim=True).expand(T, B, C)
         # Consistency scoring
         merge = torch.cat([x, selective_visual], dim=-1)
         consistency = torch.sigmoid(self.consis_fc(merge))
         adv = self.advocate(x)        # (T, B, 1)
         skp = self.skeptic(x)          # (T, B, 1)
-        entity_score = torch.sigmoid(adv - skp)  # competition
+        entity_score = torch.sigmoid(adv - skp)  # competition, (T, B, 1)
         gate = torch.sigmoid(self.gate_fc(merge))
+        # === Phase2: DISABLED (entity_score not trained yet) ===
+        # High entity_score (>0.7): full fine-grained cross-modal attention
+        # Low entity_score (<0.3): pure text, no visual injection
+        # Mid (0.3~0.7): global summary only (coarse visual context)
+        mask_high = torch.ones_like(entity_score)  # Phase2 disabled
+        mask_low  = torch.zeros_like(entity_score)  # Phase2 disabled
+        mask_mid  = 1.0 - mask_high - mask_low
+        effective_visual = (
+            mask_high * selective_visual +
+            mask_mid  * global_visual
+            # mask_low * 0 = no visual contribution
+        )
         # Consistency-modulated output
         final_gate = gate * consistency
-        output = self.layer_norm(torch.mul(final_gate, selective_visual).transpose(0,1)).transpose(0,1)
+        output = self.layer_norm(torch.mul(final_gate, effective_visual).transpose(0,1)).transpose(0,1)
         return output, consistency, entity_score
 
 

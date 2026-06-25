@@ -295,6 +295,7 @@ class TransformerModel(FairseqEncoderDecoderModel):
         if encoder_out.txt_out is not None:
             decoder_out[1]["txt_out"] = encoder_out.txt_out
             decoder_out[1]["img_out"] = encoder_out.img_out
+            decoder_out[1]["entity_score"] = encoder_out.entity_score
 
         return decoder_out
 
@@ -452,8 +453,8 @@ class TransformerEncoder(FairseqEncoder):
 
         self.total_num_img = getattr(args, "total_num_img", 5)
         self.per_num_img = getattr(args, "per_num_img", 1)
-        self.kl_loss1_coeff = getattr(args, "kl_loss1_coeff", 1.0)
-        self.kl_loss2_coeff = getattr(args, "kl_loss2_coeff", 1.0)
+        self.kl_loss1_coeff = 0.1  # hardcoded
+        self.kl_loss2_coeff = 0.1  # hardcoded
 
         # token embedding
         self.embed_tokens = embed_tokens
