@@ -441,7 +441,14 @@ class TransformerEncoder(FairseqEncoder):
         self.image_embedding_file = getattr(args, "image_embedding_file", None)
         self.img_embeddings = None
         if self.image_embedding_file and os.path.exists(self.image_embedding_file):
-            embedding_weights = np.load(self.image_embedding_file)
+            embedding_weights_raw = np.load(self.image_embedding_file)
+            if embedding_weights_raw.ndim == 4:
+                import torch.nn.functional as F
+                t = torch.FloatTensor(embedding_weights_raw).permute(0, 3, 1, 2)
+                t = F.adaptive_avg_pool2d(t, (1, 1)).squeeze(-1).squeeze(-1)
+                embedding_weights = t.numpy()
+            else:
+                embedding_weights = embedding_weights_raw
             img_vocab, img_dim = embedding_weights.shape
             embeddings_matrix = np.zeros((img_vocab + 1, img_dim), dtype=np.float32)
             embeddings_matrix[1:] = embedding_weights
